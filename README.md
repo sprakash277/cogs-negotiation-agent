@@ -24,6 +24,7 @@ beverage category (PepsiCo, Coca-Cola, Keurig Dr Pepper).
 - **Genie** — natural-language → SQL over the metric view
 - **Vector Search** — RAG over contract MSAs stored in a UC **Volume**
 - **Mosaic AI Model Serving** — the agent registered + served from UC
+- **Agent Evaluation** — LLM judges (correctness, safety, relevance, custom guidelines) offline + scheduled on live traffic; inference tables on
 - **Lakebase** — Postgres OLTP persistence for saved work
 - **AI/BI (Lakeview)** — an embedded dashboard with global filters
 - **Databricks App** — React + FastAPI front end

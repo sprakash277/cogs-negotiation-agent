@@ -80,6 +80,8 @@ cogs-negotiation-agent/
 ├── build_genie.py             # Authors the Genie space
 ├── build_knowledge.py         # Builds contract Volume + chunks + Vector Search index
 ├── build_dashboard.py         # Builds/updates + publishes the AI/BI dashboard
+├── eval_agent.py              # Quality Loop (offline): LLM-judge eval over the agent
+├── monitor_agent.py           # Quality Loop (online): scheduled judges on live traces
 ├── server/
 │   ├── config.py              # Dual/triple-mode auth (local CLI / App SP / model-serving)
 │   ├── llm.py                 # ★ Pluggable LLM factory — get_llm(), Mosaic ↔ LiteLLM
@@ -211,7 +213,30 @@ table, and a **global-filters page** (Supplier / Rebate Tier / Region). It's
 **embedded** in the Scorecard page via iframe (workspace embedding policy set to
 `ALLOW_APPROVED_DOMAINS` for the app's domain) with an "open full dashboard" link.
 
-### 4.11 The app — `app.py`, `server/routes/`, `frontend/`
+### 4.11 Quality Loop — `eval_agent.py` + `monitor_agent.py`
+
+The deployed agent is observed and judged, not just shipped:
+
+- **Inference tables (automatic).** `agents.deploy()` enables request/response +
+  trace logging to `kroger_demo.models.cogs_negotiation_agent_payload`. Every call
+  to the served agent is captured.
+- **Offline eval with LLM judges** (`eval_agent.py`). An eval dataset (brief /
+  scorecard / chat / rehearse cases with `expected_facts`) is run through the
+  served endpoint and scored by Mosaic AI / MLflow judges: **Correctness,
+  RelevanceToQuery, Safety**, plus two custom **Guidelines** judges
+  (`grounded_numbers`, `briefs_cite_contract`). Logged to an MLflow evaluation run
+  for version-over-version comparison. *(First run: relevance/safety/grounded =
+  1.0, briefs-cite-contract = 0.8, correctness = 0.75.)*
+- **Online monitoring** (`monitor_agent.py`). Scheduled scorers (Safety,
+  RelevanceToQuery, grounded_numbers) registered on the agent's MLflow experiment
+  so **sampled production traffic is judged continuously**.
+- **Re-register.** When eval regresses, `deploy_agent.py` registers the next model
+  version and redeploys — closing the loop.
+
+> Note: AI Gateway *usage tracking* isn't supported for the agent endpoint type in
+> this workspace; the inference table provides the equivalent observability.
+
+### 4.12 The app — `app.py`, `server/routes/`, `frontend/`
 
 - **Backend** (FastAPI): serves `/api/*` and the built React SPA. Routers:
   `catalog` (hub/scorecard/overview/health), `agentic` (brief/deck/rehearse +
