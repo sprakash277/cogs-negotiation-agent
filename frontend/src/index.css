@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "DM Sans", system-ui, sans-serif;
+  background: radial-gradient(ellipse at 50% 0%, #102838 0%, #080F14 70%);
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* thin scrollbars to match the dark theme */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }

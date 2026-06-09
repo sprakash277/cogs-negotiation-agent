@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COGS Negotiation Agent — How It Works</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --orange:#FF6F3C; --orangeL:#FF8C5C;
+    --teal:#14323d; --tealDeep:#080F14;
+    --cyan:#22D3EE; --gold:#F59E0B; --purple:#A78BFA; --green:#64FFDA; --rose:#FB7185;
+    --w:#fff; --w80:rgba(255,255,255,.8); --w60:rgba(255,255,255,.6);
+    --w45:rgba(255,255,255,.45); --w30:rgba(255,255,255,.3);
+    --w20:rgba(255,255,255,.2); --w10:rgba(255,255,255,.1); --w05:rgba(255,255,255,.04);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',system-ui,sans-serif;color:var(--w);
+    background:radial-gradient(ellipse at 50% 16%,#102838 0%,var(--tealDeep) 80%);
+    min-height:100vh;padding:28px 24px 44px;-webkit-font-smoothing:antialiased}
+  .slide{max-width:1060px;margin:0 auto}
+
+  .wordmark{font-size:.72rem;font-weight:800;letter-spacing:.18em;color:var(--w45);text-transform:uppercase;margin-bottom:7px}
+  h1{font-size:1.82rem;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+  h1 .cyan{color:var(--cyan)}
+  .sub2{font-size:.9rem;color:var(--w60);margin-top:7px}
+  .status{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-size:.61rem;font-weight:700;letter-spacing:.04em;padding:4px 10px;border-radius:20px;background:var(--w05);border:1px solid var(--w10);color:var(--w60)}
+  .chip.ga{color:var(--green);border-color:rgba(100,255,218,.3);background:rgba(100,255,218,.05)}
+  .chip.prev{color:var(--gold);border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.05)}
+
+  .vstack{display:flex;flex-direction:column;align-items:stretch;margin-top:22px}
+
+  .band{border-radius:14px;padding:13px 14px;position:relative;margin-top:15px}
+  .ltag{position:absolute;top:-10px;left:13px;background:#0c1f27;border:1px solid var(--w20);color:var(--w45);font-size:.54rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:11px}
+  .band-h{font-size:.64rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .band-h .r{margin-left:auto;font-size:.66rem;font-weight:600;color:var(--w45);letter-spacing:0;text-transform:none}
+
+  /* LAYER 1 · APP */
+  .band-app{background:rgba(255,111,60,.05);border:1.5px solid rgba(255,111,60,.32)}
+  .band-app .band-h{color:var(--orange)}
+  .feat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .feat{background:rgba(255,111,60,.05);border:1px solid rgba(255,111,60,.18);border-radius:9px;padding:9px 10px;text-align:center}
+  .feat .em{font-size:1.25rem;display:block;margin-bottom:3px}
+  .feat b{display:block;font-size:.77rem;color:#fff;font-weight:700;line-height:1.15}
+  .feat small{font-size:.62rem;color:var(--w45);display:block;margin-top:2px}
+  .feat .pw{color:var(--cyan);font-weight:600}
+
+
+  /* runtime connectors */
+  .vio{display:flex;justify-content:center;gap:54px;padding:6px 0}
+  .vflow{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .num{width:21px;height:21px;border-radius:50%;background:var(--orange);color:#fff;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px var(--tealDeep);z-index:2}
+  .num.gr{background:var(--green);color:#06231a}
+  .vlabel{font-size:.56rem;font-weight:800;letter-spacing:.04em;color:var(--w45);text-transform:uppercase;text-align:center;line-height:1.3}
+  .vline{width:3px;height:24px;border-radius:2px;position:relative;overflow:hidden}
+  .vline-o{background:rgba(255,111,60,.16)}
+  .vline-o:after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,var(--orange),transparent);height:55%;animation:vdown 1.8s linear infinite}
+  .vline-g{background:rgba(100,255,218,.16)}
+  .vline-g:after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,var(--green),transparent);height:55%;animation:vup 2s linear infinite}
+  @keyframes vdown{from{top:-55%}to{top:100%}}
+  @keyframes vup{from{top:100%}to{top:-55%}}
+
+  /* MIDDLE: Runtime (left) + Quality loop (right) + App→UC rail */
+  .midwrap{position:relative;margin-top:4px;padding:0 132px}
+  .midgrid{display:grid;grid-template-columns:1.06fr .94fr;gap:14px;align-items:stretch}
+
+  .col{display:flex;flex-direction:column}
+  .box{flex:1;border-radius:13px;padding:12px 12px;position:relative}
+  .box-h{font-size:.62rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+
+  /* Runtime box */
+  .box-rt{background:linear-gradient(180deg,rgba(251,113,133,.07),rgba(34,211,238,.04));border:1.5px solid rgba(251,113,133,.32)}
+  .box-rt .box-h{color:var(--rose)}
+  .gate{background:linear-gradient(180deg,rgba(251,113,133,.1),rgba(255,111,60,.05));border:1px solid rgba(251,113,133,.4);border-radius:9px;padding:8px 10px;margin-bottom:7px}
+  .gate-t{font-size:.8rem;font-weight:800;color:#fff}
+  .ga-tag{font-size:.54rem;font-weight:800;color:var(--green);border:1px solid rgba(100,255,218,.4);background:rgba(100,255,218,.06);padding:2px 7px;border-radius:12px;margin-left:6px}
+  .gate-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+  .gate-chips span{font-size:.58rem;color:var(--w60);background:rgba(0,0,0,.28);border:1px solid var(--w10);border-radius:6px;padding:3px 7px}
+  .route{text-align:center;font-size:.54rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);margin:4px 0}
+  .agent{position:relative;background:linear-gradient(135deg,rgba(255,111,60,.1),rgba(167,139,250,.08));border:1px solid rgba(255,111,60,.4);border-radius:9px;padding:7px 10px;text-align:center;overflow:hidden;margin-bottom:7px}
+  .agent-pulse{position:absolute;inset:0;border-radius:9px;background:radial-gradient(ellipse at center,rgba(255,111,60,.18),transparent 70%);animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:.9;transform:scale(1.04)}}
+  .agent-ic{font-size:1.15rem;position:relative;filter:drop-shadow(0 0 9px var(--orange))}
+  .agent strong{display:inline-block;font-size:.85rem;color:#fff;font-weight:800;position:relative;margin-left:5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .mini{background:rgba(0,0,0,.28);border-radius:8px;border:1px solid var(--w10);padding:7px 8px;text-align:center}
+  .mini .em{font-size:.98rem;display:block;margin-bottom:1px}
+  .mini b{display:block;font-size:.71rem;color:#fff;font-weight:700;line-height:1.1}
+  .mini small{font-size:.57rem;color:var(--w45)}
+  .mini-cy{background:rgba(34,211,238,.05);border-color:rgba(34,211,238,.22)}
+  .mini-pu{background:rgba(167,139,250,.05);border-color:rgba(167,139,250,.25)}
+  .mini-gr{background:rgba(100,255,218,.05);border-color:rgba(100,255,218,.22)}
+  /* Foundation models (behind the gateway) */
+  .fm-note{text-align:center;font-size:.53rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--rose);margin:7px 0 5px}
+  .fm{background:rgba(167,139,250,.07);border:1px solid rgba(167,139,250,.34);border-radius:9px;padding:8px 9px}
+  .fm-h{font-size:.71rem;font-weight:800;color:#fff;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+  .fm-chips{display:flex;gap:5px;flex-wrap:wrap}
+  .fm-chips span{font-size:.57rem;color:var(--w60);background:rgba(0,0,0,.28);border:1px solid var(--w10);border-radius:6px;padding:3px 7px}
+  .fm-chips .ft{color:var(--gold);border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.06)}
+  .fm-tie{font-size:.55rem;color:var(--w45);margin-top:6px;line-height:1.3}
+  .fm-tie b{color:var(--gold)}
+
+  /* Pluggable LLM provider switch */
+  .prov-row{display:flex;align-items:stretch;gap:6px;margin-top:3px}
+  .prov{flex:1;border-radius:8px;padding:6px 8px;text-align:center;border:1px solid var(--w10);background:rgba(0,0,0,.28)}
+  .prov-t{font-size:.72rem;font-weight:800;color:#fff;line-height:1.1}
+  .prov-s{font-size:.55rem;color:var(--w45);margin-top:1px}
+  .prov-on{border-color:rgba(100,255,218,.45);background:rgba(100,255,218,.06)}
+  .prov-on .prov-t{color:var(--green)}
+  .prov-off{border-color:rgba(34,211,238,.3);background:rgba(34,211,238,.04);border-style:dashed}
+  .prov-off .prov-t{color:var(--cyan)}
+  .prov-or{display:flex;align-items:center;font-size:.55rem;font-weight:800;color:var(--w45);text-transform:uppercase}
+  .prov-tag{display:inline-block;font-size:.5rem;font-weight:800;letter-spacing:.04em;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle}
+  .prov-tag.def{color:var(--green);border:1px solid rgba(100,255,218,.4);background:rgba(100,255,218,.06)}
+
+  /* Quality loop box */
+  .box-q{background:rgba(100,255,218,.03);border:1.5px dashed rgba(100,255,218,.3)}
+  .box-q .box-h{color:var(--green)}
+  .qup{display:flex;justify-content:space-around;font-size:.56rem;font-weight:700;color:var(--w45);text-align:center;line-height:1.25;margin-bottom:8px}
+  .qup .ar{color:var(--green);font-size:1rem;display:block}
+  .qstep{background:rgba(0,0,0,.3);border:1px solid var(--w10);border-radius:9px;padding:8px 11px;text-align:center}
+  .qstep b{display:block;font-size:.76rem;color:#fff;font-weight:700}
+  .qstep small{font-size:.61rem;color:var(--w45)}
+  .qstep.q{border-color:rgba(34,211,238,.3)} .qstep.q b{color:var(--cyan)}
+  .qarr{text-align:center;color:var(--green);font-size:1rem;font-weight:800;margin:3px 0}
+  .qcap{font-size:.6rem;color:var(--w45);line-height:1.4;margin-top:8px;text-align:center}
+  .qcap b{color:var(--green)}
+
+  /* App -> direct dashed rails (gutters) */
+  .rail{position:absolute;top:0;bottom:-4px;width:108px;display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
+  .rail .pt{font-size:.55rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;line-height:1.3}
+  .rail .ln{flex:1;min-height:34px}
+  .rail .ds{font-size:.56rem;color:var(--w45);line-height:1.3}
+  .rail .dn{font-size:1.05rem;line-height:1}
+  .app2uc{right:10px}
+  .app2uc .pt,.app2uc .dn{color:var(--purple)}
+  .app2uc .ln{border-left:2px dashed var(--purple)}
+  .app2genie{left:10px}
+  .app2genie .dn{color:var(--cyan)}
+  .app2genie .ln{border-left:2px dashed var(--cyan)}
+  .genie-card{background:rgba(34,211,238,.08);border:1.5px solid rgba(34,211,238,.45);border-radius:11px;padding:9px 7px;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .genie-card svg{filter:drop-shadow(0 0 6px rgba(34,211,238,.6))}
+  .genie-card .gt{font-size:.74rem;font-weight:800;color:#fff;line-height:1.05;margin-top:2px}
+  .genie-card .gs{font-size:.55rem;color:var(--cyan);font-weight:600}
+
+  /* convergence labels under runtime + quality */
+  .conv2{display:grid;grid-template-columns:1.06fr .94fr;gap:14px;padding:7px 132px 2px 132px}
+  .clink{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+  .clink .pt{font-size:.55rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+  .clink .ds{font-size:.59rem;color:var(--w45);line-height:1.3}
+  .clink.c-data .pt{color:var(--cyan)}
+  .clink.c-q .pt{color:var(--green)}
+  .vline-c{width:3px;height:22px;border-radius:2px;background:rgba(34,211,238,.16);position:relative;overflow:hidden}
+  .vline-c:after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent,var(--cyan),transparent);height:55%;animation:vdown 2.1s linear infinite}
+  .updown{color:var(--green);font-size:1rem;font-weight:800}
+
+  /* LAYER 3 · UNITY CATALOG */
+  .band-uc{background:rgba(245,158,11,.05);border:2px solid var(--gold);border-radius:16px;padding:26px 14px 14px;position:relative;margin-top:2px}
+  .uc-legend{position:absolute;top:-13px;left:50%;transform:translateX(-50%);white-space:nowrap;background:#0c1f27;border:1.5px solid var(--gold);color:var(--gold);font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:5px 15px;border-radius:20px}
+  .uc-cols{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
+  .uc-group{background:rgba(0,0,0,.2);border:1px solid var(--w10);border-radius:11px;padding:11px 10px}
+  .uc-group h4{font-size:.58rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--gold);margin-bottom:8px;padding-left:8px;border-left:2px solid var(--gold)}
+  .uc-group .mini{margin-bottom:6px;text-align:left;display:flex;gap:7px;align-items:center}
+  .uc-group .mini:last-child{margin-bottom:0}
+  .uc-group .mini .em{margin:0}
+  .uc-group .mini b{font-size:.73rem}
+  .mini-go{background:rgba(245,158,11,.05);border-color:rgba(245,158,11,.22)}
+  .mini-lb{background:rgba(110,177,224,.06);border-color:rgba(110,177,224,.3)}
+
+  /* Export PDF button */
+  .export-btn{position:fixed;top:16px;right:16px;z-index:100;background:var(--orange);color:#fff;border:none;
+    font-family:inherit;font-size:.74rem;font-weight:800;letter-spacing:.04em;padding:9px 15px;border-radius:9px;
+    cursor:pointer;box-shadow:0 6px 18px rgba(255,111,60,.35);transition:transform .15s,box-shadow .15s}
+  .export-btn:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(255,111,60,.5)}
+
+  /* Print / PDF export — keep theme, freeze animations, one landscape page */
+  @media print{
+    body{padding:20px 22px;min-height:0 !important;background:#080F14 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .export-btn{display:none !important}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;
+      animation:none !important;transition:none !important}
+    .slide{max-width:1060px;margin:0}
+  }
+  /* @page size injected dynamically by fitOnePage() so the export is always ONE page */
+</style>
+</head>
+<body>
+<button class="export-btn" onclick="exportPDF()">⬇ Export PDF</button>
+<script>
+  // Force the print/PDF onto a single page sized to the actual content.
+  function fitOnePage(){
+    var s=document.querySelector('.slide');
+    var padX=22, padY=20;                      // matches @media print body padding
+    var w=Math.ceil(s.getBoundingClientRect().width + padX*2);
+    var contentH=Math.max(s.scrollHeight, s.getBoundingClientRect().height, document.body.scrollHeight);
+    var h=Math.ceil(contentH + padY*2 + 30);   // +30 safety so sub-pixel overflow can't spill to page 2
+    var st=document.getElementById('pagesize');
+    if(!st){st=document.createElement('style');st.id='pagesize';document.head.appendChild(st);}
+    st.textContent='@media print{@page{size:'+w+'px '+h+'px;margin:0}}';
+    return [w,h];
+  }
+  function exportPDF(){ fitOnePage(); window.print(); }
+  window.addEventListener('load', fitOnePage);
+</script>
+<div class="slide">
+
+  <div class="wordmark">Kroger Sourcing &nbsp;·&nbsp; Databricks &nbsp;·&nbsp; Prepared by Sumit Prakash</div>
+  <h1>COGS Negotiation Agent — <span class="cyan">How It Works</span></h1>
+  <p class="sub2">Three layers — the app routes through the Supervisor and calls Genie directly, while reading/writing Lakebase (OLTP) inside Unity Catalog. LLM calls go through a <b style="color:var(--cyan)">pluggable router</b> (one LangChain interface, Mosaic ↔ LiteLLM).</p>
+  <div class="status">
+    <span class="chip ga">Unity Catalog · GA</span>
+    <span class="chip ga">Metric Views · GA</span>
+    <span class="chip ga">Mosaic AI Gateway · GA</span>
+    <span class="chip ga">Genie · GA</span>
+    <span class="chip prev">Agent Bricks · Preview</span>
+    <span class="chip" style="color:var(--cyan);border-color:rgba(34,211,238,.3);background:rgba(34,211,238,.05)">Pluggable LLM · Mosaic ↔ LiteLLM</span>
+  </div>
+
+  <div class="vstack">
+
+    <!-- LAYER 1 -->
+    <div class="band band-app">
+      <div class="ltag">Layer 1 · Experience</div>
+      <div class="band-h">🛒 Databricks App · Negotiator Console <span class="r">Category Negotiators · Pepsi / Coke / KDP</span></div>
+      <div class="feat-row">
+        <div class="feat"><span class="em">📊</span><b>Supplier Scorecard</b><small>spend · COGS · trend<br><span class="pw">Genie</span></small></div>
+        <div class="feat"><span class="em">📑</span><b>Fact-Pack &amp; Deck</b><small>auto-built<br><span class="pw">Genie + Deck Builder</span></small></div>
+        <div class="feat"><span class="em">✍️</span><b>Negotiation Brief</b><small>talking points<br><span class="pw">Knowledge Assistant</span></small></div>
+        <div class="feat"><span class="em">⚔️</span><b>Rehearsal Room</b><small>role-play vendor<br><span class="pw">Vendor Agent</span></small></div>
+      </div>
+    </div>
+
+    <!-- App <-> Runtime -->
+    <div class="vio">
+      <div class="vflow"><div class="num">1</div><span class="vlabel">Ask</span><div class="vline vline-o"></div></div>
+      <div class="vflow"><div class="vline vline-g"></div><span class="vlabel">Deliver</span><div class="num gr">3</div></div>
+    </div>
+
+    <!-- MIDDLE -->
+    <div class="midwrap">
+      <div class="midgrid">
+
+        <!-- LAYER 2 · Runtime (smaller) -->
+        <div class="col">
+          <div class="box box-rt">
+            <div class="ltag">Layer 2 · Runtime</div>
+            <div class="box-h">🚪 Gateway &amp; 🤖 Agent Bricks</div>
+            <div class="gate">
+              <span class="gate-t">Mosaic AI Gateway</span><span class="ga-tag">GA</span>
+              <div class="gate-chips"><span>Guardrails</span><span>Rate limit</span><span>Usage</span><span>Payload log</span><span>Fallback</span></div>
+            </div>
+            <div class="route">② route ↓</div>
+            <div class="agent"><div class="agent-pulse"></div><span class="agent-ic">🧭</span><strong>Multi-Agent Supervisor</strong></div>
+            <div class="grid2">
+              <div class="mini mini-cy"><span class="em">🔎</span><b>Genie Space</b><small>NL→SQL · scorecard</small></div>
+              <div class="mini"><span class="em">📚</span><b>Knowledge Asst.</b><small>RAG · brief</small></div>
+              <div class="mini mini-pu"><span class="em">🎭</span><b>Vendor Rehearsal</b><small>role-play</small></div>
+              <div class="mini mini-gr"><span class="em">🛠️</span><b>Deck Builder</b><small>UC Function</small></div>
+            </div>
+            <div class="fm-note">agents call get_llm() · provider-pluggable ↓</div>
+            <div class="fm">
+              <div class="fm-h">🔌 Pluggable LLM Router <span class="prov-tag def">LLM_PROVIDER</span></div>
+              <div class="prov-row">
+                <div class="prov prov-on">
+                  <div class="prov-t">Mosaic AI Gateway</div>
+                  <div class="prov-s">default · governed</div>
+                </div>
+                <div class="prov-or">or</div>
+                <div class="prov prov-off">
+                  <div class="prov-t">LiteLLM proxy</div>
+                  <div class="prov-s">OpenAI-compatible</div>
+                </div>
+              </div>
+              <div class="fm-chips" style="margin-top:7px">
+                <span>FMAPI · Claude / Llama</span>
+                <span>External</span>
+                <span class="ft">Fine-tuned ↗</span>
+              </div>
+              <div class="fm-tie">One LangChain interface — flip <b>LLM_PROVIDER</b> mosaic↔litellm, zero agent-code change. LiteLLM can route upstream <b>through Mosaic</b> to keep one governance boundary; fine-tuned models governed in <b>UC Model Registry ↗</b></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PART 3 · Quality loop (next to runtime) -->
+        <div class="col">
+          <div class="box box-q">
+            <div class="ltag">Part 3 · Quality Loop</div>
+            <div class="box-h">↻ Eval &amp; Monitoring <span class="r" style="margin-left:auto;font-size:.6rem">compute on UC</span></div>
+            <div class="qup">
+              <div><span class="ar">↑</span>reads Inference<br>Tables (UC)</div>
+              <div><span class="ar">↑</span>writes next ver →<br>Model Registry (UC)</div>
+            </div>
+            <div class="qstep q"><b>Eval / LLM-judge</b><small>correctness · grounding · safety</small></div>
+            <div class="qarr">↓</div>
+            <div class="qstep"><b>Lakehouse Monitoring</b><small>quality &amp; drift over time</small></div>
+            <div class="qarr">↺</div>
+            <div class="qstep"><b>Re-register model</b><small>next cogs_agent version</small></div>
+            <div class="qcap">Reads <b>Inference Tables</b> → scores quality → re-registers into UC's <b>Model Registry</b>. Storage stays in UC; only the judging is compute.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- App -> Genie Space (direct), Genie reads UC (left rail) -->
+      <div class="rail app2genie">
+        <div class="dn">▼</div>
+        <div class="genie-card">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="#22D3EE"><path d="M12 1.5l1.7 5.1 5.1 1.7-5.1 1.7L12 15.1l-1.7-5.1L5.2 8.3l5.1-1.7z"/><path d="M18.5 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z" opacity=".8"/></svg>
+          <div class="gt">Genie Space</div>
+          <div class="gs">direct · API</div>
+        </div>
+        <div class="ln"></div>
+        <div class="ds">app calls Genie directly · Genie reads UC ↓</div>
+        <div class="dn">▼</div>
+      </div>
+
+      <!-- App <-> Lakebase (in UC) read/write (right rail) -->
+      <div class="rail app2uc">
+        <div class="pt">App ⇄ UC</div>
+        <div class="ln"></div>
+        <div class="ds">read / write → Lakebase (OLTP, in UC) · governed · RLS</div>
+        <div class="dn">▼</div>
+      </div>
+    </div>
+
+    <!-- convergence into UC under each column -->
+    <div class="conv2">
+      <div class="clink c-data"><span class="pt">Part 2 · Agents → UC</span><span class="ds">reads governed data · logs traces</span><div class="vline-c"></div></div>
+      <div class="clink c-q"><span class="pt">Part 3 ↕ UC</span><span class="ds">reads inference · writes model</span><span class="updown">↕</span></div>
+    </div>
+
+    <!-- LAYER 3 -->
+    <div class="band band-uc">
+      <div class="uc-legend">🛡️ Layer 3 · Unity Catalog — one governance boundary</div>
+      <div class="uc-cols">
+        <div class="uc-group">
+          <h4>Well-Modeled Data Domains</h4>
+          <div class="mini"><span class="em">🗄️</span><div><b>Delta Tables</b><small>spend · COGS · volume · supplier</small></div></div>
+          <div class="mini"><span class="em">📁</span><div><b>Volumes</b><small>contracts · MSAs · memos</small></div></div>
+        </div>
+        <div class="uc-group">
+          <h4>Business Semantic</h4>
+          <div class="mini"><span class="em">📐</span><div><b>Metric Views</b><small>certified COGS / landed cost</small></div></div>
+          <div class="mini"><span class="em">🏷️</span><div><b>Tags · Certified KPIs</b><small>comments · lineage</small></div></div>
+        </div>
+        <div class="uc-group">
+          <h4>Agent &amp; Model Governance</h4>
+          <div class="mini"><span class="em">📦</span><div><b>Model Registry</b><small>cogs_agent + sub-agents</small></div></div>
+          <div class="mini"><span class="em">🔧</span><div><b>UC Functions</b><small>agent tools, with grants</small></div></div>
+          <div class="mini mini-go"><span class="em">📊</span><div><b>Inference Tables</b><small>request / response traces</small></div></div>
+        </div>
+        <div class="uc-group">
+          <h4>Operational · Lakebase</h4>
+          <div class="mini mini-lb"><span class="em">🐘</span><div><b>Postgres · OLTP</b><small>queue · briefs · rehearsal sessions</small></div></div>
+          <div class="mini mini-lb"><span class="em">⚡</span><div><b>Synced Tables</b><small>&lt;10ms lookups · ← Delta sync</small></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

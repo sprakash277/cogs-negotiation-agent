@@ -1,0 +1,54 @@
+command:
+  - "python"
+  - "-m"
+  - "uvicorn"
+  - "app:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+env:
+  # ---- LLM provider switch -------------------------------------------------
+  # 'mosaic'  -> route through the Mosaic AI Gateway (governed; default)
+  # 'litellm' -> route through a LiteLLM proxy (OpenAI-compatible)
+  - name: LLM_PROVIDER
+    value: "mosaic"
+  - name: LLM_MODEL
+    value: "databricks-claude-sonnet-4-5"
+
+  # ---- Genie (NL->SQL over kroger_demo.cogs) -------------------------------
+  - name: GENIE_SPACE_ID
+    value: "01f1642219cf135cb84f7e0dbc8d6957"
+
+  # ---- Knowledge Assistant (Vector Search over contract MSAs) --------------
+  - name: CONTRACT_INDEX
+    value: "kroger_demo.cogs.contract_chunks_index"
+
+  # ---- AI/BI dashboard (embedded on the Scorecard page) --------------------
+  - name: DASHBOARD_ID
+    value: "01f1643845191b049c9a3acf7531495b"
+
+  # ---- Lakebase (Postgres OLTP) — persists briefs/decks/rehearsals/queue ----
+  # PGHOST/PGUSER/PGPORT/PGDATABASE are auto-injected by the attached database
+  # resource; we just name the instance for OAuth credential generation.
+  - name: LAKEBASE_INSTANCE
+    value: "cogs-lakebase"
+
+  # ---- Mosaic AI Gateway / governed path (LLM_PROVIDER=mosaic) -------------
+  # If your workspace exposes the dedicated AI Gateway subdomain (mostly AWS),
+  # set AI_GATEWAY_URL to https://<ws-id>.ai-gateway.cloud.databricks.com/mlflow/v1.
+  # On Azure (this workspace) leave it UNSET — the app falls back to the
+  # workspace /serving-endpoints OpenAI-compatible route automatically.
+  # - name: AI_GATEWAY_URL
+  #   value: ""
+
+  # ---- LiteLLM (only used when LLM_PROVIDER=litellm) ------------------------
+  # - name: LITELLM_BASE_URL
+  #   value: "http://your-litellm-proxy:4000"
+  # - name: LITELLM_API_KEY
+  #   value: "sk-..."
+  # - name: LITELLM_MODEL
+  #   value: "claude-sonnet-4"
+  # - name: LITELLM_ROUTES_VIA_MOSAIC
+  #   value: "true"   # keep one governance boundary

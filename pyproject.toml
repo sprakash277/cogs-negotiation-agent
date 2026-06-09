@@ -1,0 +1,31 @@
+[project]
+name = "cogs-negotiation-agent"
+version = "0.1.0"
+description = "Kroger COGS Negotiation Agent — Databricks App with pluggable LLM (Mosaic AI Gateway / LiteLLM)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "python-multipart>=0.0.9",
+    "databricks-sdk>=0.30",
+    "langchain>=0.3",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "httpx>=0.27",
+    "psycopg[binary,pool]>=3.1",
+]
+
+[project.optional-dependencies]
+# Native ChatDatabricks path (LLM_PROVIDER=databricks). Not needed for the
+# default mosaic/litellm providers, which use langchain-openai.
+databricks-native = ["databricks-langchain>=0.4"]
+
+# NOTE: deploying the agent as a served model needs extra LOCAL tooling that is
+# intentionally NOT part of the app runtime (keeps the app's uv.lock small):
+#   uv pip install mlflow databricks-agents \
+#       azure-storage-file-datalake azure-storage-blob azure-identity
+# See deploy_agent.py.
+
+[tool.uv]
+package = false
