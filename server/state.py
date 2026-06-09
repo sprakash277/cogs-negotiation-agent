@@ -25,6 +25,7 @@ _KINDS = ("briefs", "decks", "rehearsals", "queue")
 # --------------------------------------------------------------------------- #
 _lock = threading.Lock()
 _store: dict[str, dict] = {k: {} for k in _KINDS}
+_feedback: list[dict] = []  # in-memory fallback for feedback
 
 
 def _new_id() -> str:
@@ -90,6 +91,17 @@ def init() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )"""
             )
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS feedback (
+                    id TEXT PRIMARY KEY,
+                    artifact_id TEXT,
+                    kind TEXT NOT NULL,
+                    rating TEXT NOT NULL,
+                    comment TEXT,
+                    supplier_key TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )"""
+            )
         conn.commit()
 
 
@@ -141,3 +153,44 @@ def list_artifacts(kind: str) -> list[dict]:
         return [r[0] for r in rows]
     with _lock:
         return list(_store[kind].values())
+
+
+# --------------------------------------------------------------------------- #
+# Human feedback (the in-app feedback loop)
+# --------------------------------------------------------------------------- #
+def save_feedback(artifact_id: str | None, kind: str, rating: str,
+                  comment: str | None, supplier_key: str | None) -> str:
+    fid = _new_id()
+    if USE_LAKEBASE and _pool is not None:
+        with _pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO feedback (id, artifact_id, kind, rating, comment, supplier_key) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (fid, artifact_id, kind, rating, comment, supplier_key),
+                )
+            conn.commit()
+        return fid
+    with _lock:
+        _feedback.append({"id": fid, "artifact_id": artifact_id, "kind": kind,
+                          "rating": rating, "comment": comment, "supplier_key": supplier_key})
+    return fid
+
+
+def list_feedback(kind: str | None = None) -> list[dict]:
+    if USE_LAKEBASE and _pool is not None:
+        q = ("SELECT id, artifact_id, kind, rating, comment, supplier_key, created_at "
+             "FROM feedback")
+        params: tuple = ()
+        if kind:
+            q += " WHERE kind = %s"
+            params = (kind,)
+        q += " ORDER BY created_at DESC LIMIT 500"
+        with _pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(q, params)
+                cols = [c.name for c in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return rows
+    with _lock:
+        return [f for f in _feedback if not kind or f["kind"] == kind]

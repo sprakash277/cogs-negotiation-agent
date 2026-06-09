@@ -11,9 +11,30 @@ from pydantic import BaseModel
 
 from ..agents import build_fact_pack, build_negotiation_brief, rehearse_turn
 from ..data import get_supplier
-from ..state import get_artifact, list_artifacts, save_artifact
+from ..state import get_artifact, list_artifacts, save_artifact, save_feedback, list_feedback
 
 router = APIRouter()
+
+
+class FeedbackRequest(BaseModel):
+    artifact_id: str | None = None
+    kind: str = "general"          # briefs | decks | negotiator | …
+    rating: str                    # "up" | "down"
+    comment: str | None = None
+    supplier_key: str | None = None
+
+
+@router.post("/feedback")
+def feedback(req: FeedbackRequest):
+    if req.rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+    fid = save_feedback(req.artifact_id, req.kind, req.rating, req.comment, req.supplier_key)
+    return {"id": fid, "status": "saved"}
+
+
+@router.get("/feedback")
+def feedback_list(kind: str | None = None):
+    return {"items": list_feedback(kind)}
 
 
 class BriefRequest(BaseModel):

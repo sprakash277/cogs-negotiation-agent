@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Sparkles, Loader2, FileText } from "lucide-react";
 import { api } from "../api";
 import PageHeader from "../components/PageHeader";
+import Feedback from "../components/Feedback";
 
 const DEFAULT_OBJ =
   "Reduce landed COGS and improve trade-fund efficiency for the upcoming contract cycle.";
@@ -11,16 +12,18 @@ export default function Brief() {
   const { supplier } = useParams();
   const [objective, setObjective] = useState(DEFAULT_OBJ);
   const [content, setContent] = useState("");
+  const [briefId, setBriefId] = useState<string | undefined>();
   const [sources, setSources] = useState<{ section: string; supplier: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   async function gen() {
     if (!supplier) return;
-    setLoading(true); setErr(""); setContent(""); setSources([]);
+    setLoading(true); setErr(""); setContent(""); setSources([]); setBriefId(undefined);
     try {
       const r = await api.brief(supplier, objective);
       setContent(r.content);
+      setBriefId(r.id);
       setSources(r.sources || []);
     } catch (e) { setErr(String(e)); }
     finally { setLoading(false); }
@@ -64,8 +67,9 @@ export default function Brief() {
       )}
 
       {content && (
-        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.02] p-6 whitespace-pre-wrap text-sm leading-relaxed text-white/90">
-          {content}
+        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.02] p-6 text-sm leading-relaxed text-white/90">
+          <div className="whitespace-pre-wrap">{content}</div>
+          <Feedback artifactId={briefId} kind="briefs" supplierKey={supplier} />
         </div>
       )}
     </div>

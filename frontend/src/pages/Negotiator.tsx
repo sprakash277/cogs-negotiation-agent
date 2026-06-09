@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Loader2, Compass, Database, ChevronDown, ChevronRight } from "lucide-react";
 import { api, SupervisorResult } from "../api";
 import PageHeader from "../components/PageHeader";
+import Feedback from "../components/Feedback";
 
 interface Turn {
   role: "user" | "assistant";
@@ -164,6 +165,8 @@ function AssistantBubble({ r }: { r: SupervisorResult }) {
           {showSql && <pre className="mt-1 text-[0.66rem] text-white/60 bg-black/40 border border-white/10 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">{r.sql}</pre>}
         </div>
       )}
+
+      <Feedback kind={`negotiator:${r.route}`} supplierKey={r.supplier_key || undefined} />
     </div>
   );
 }

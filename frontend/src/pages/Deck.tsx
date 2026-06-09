@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Sparkles, Loader2 } from "lucide-react";
 import { api, Deck as DeckT } from "../api";
 import PageHeader from "../components/PageHeader";
+import Feedback from "../components/Feedback";
 
 const DEFAULT_OBJ =
   "Reduce landed COGS and improve trade-fund efficiency for the upcoming contract cycle.";
@@ -15,15 +16,17 @@ export default function Deck() {
   const { supplier } = useParams();
   const [objective, setObjective] = useState(DEFAULT_OBJ);
   const [deck, setDeck] = useState<DeckT | null>(null);
+  const [deckId, setDeckId] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   async function gen() {
     if (!supplier) return;
-    setLoading(true); setErr(""); setDeck(null);
+    setLoading(true); setErr(""); setDeck(null); setDeckId(undefined);
     try {
       const r = await api.deck(supplier, objective);
       setDeck(r.deck);
+      setDeckId(r.id);
     } catch (e) { setErr(String(e)); }
     finally { setLoading(false); }
   }
@@ -99,6 +102,8 @@ export default function Deck() {
               </ul>
             </div>
           )}
+
+          <Feedback artifactId={deckId} kind="decks" supplierKey={supplier} />
         </div>
       )}
     </div>

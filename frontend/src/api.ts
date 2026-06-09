@@ -85,6 +85,8 @@ export const api = {
     post<GenieResult>("/genie/ask", { question, conversation_id }),
   supervisorAsk: (message: string, history: { role: string; content: string }[]) =>
     post<SupervisorResult>("/supervisor/ask", { message, history }),
+  feedback: (p: { artifact_id?: string; kind: string; rating: "up" | "down"; comment?: string; supplier_key?: string }) =>
+    post<{ id: string; status: string }>("/feedback", p),
   hub: () => get<{ cards: HubCard[] }>("/hub"),
   overview: () => get<any>("/overview"),
   scorecard: (supplier?: string) =>

@@ -230,6 +230,12 @@ The deployed agent is observed and judged, not just shipped:
 - **Online monitoring** (`monitor_agent.py`). Scheduled scorers (Safety,
   RelevanceToQuery, grounded_numbers) registered on the agent's MLflow experiment
   so **sampled production traffic is judged continuously**.
+- **In-app human feedback.** 👍/👎 + an optional comment on every Brief, Deck, and
+  Negotiator response (`frontend/src/components/Feedback.tsx` → `POST /api/feedback`),
+  persisted to the Lakebase `feedback` table. The Databricks **Review App**
+  (auto-created at deploy) additionally lets SMEs label responses.
+- **Promote feedback → eval.** `promote_feedback.py` turns thumbs-down + corrections
+  into new `expected_facts` eval cases, so human signal feeds the offline judge run.
 - **Re-register.** When eval regresses, `deploy_agent.py` registers the next model
   version and redeploys — closing the loop.
 
