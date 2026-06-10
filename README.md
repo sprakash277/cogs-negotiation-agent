@@ -36,8 +36,10 @@ beverage category (PepsiCo, Coca-Cola, Keurig Dr Pepper).
 the 3-layer architecture, every component, request-flow traces, deployment steps,
 how to switch the LLM provider, and a complete resource inventory.
 
-🖼️ **See [`cogs-agent-flow.html`](./cogs-agent-flow.html)** for the visual
-"How It Works" diagram (open in a browser; has an Export-PDF button).
+🖼️ **[Open the visual "How It Works" diagram →](https://sprakash277.github.io/cogs-negotiation-agent/cogs-agent-flow.html)**
+(hosted on GitHub Pages; has an Export-PDF button). Source:
+[`cogs-agent-flow.html`](./cogs-agent-flow.html) — open locally in a browser, or
+the GitHub link shows the raw HTML.
 
 ## Quick start (local dev)
 
