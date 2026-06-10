@@ -16,11 +16,11 @@ A negotiator can:
 
 | Capability | What it produces | Powered by |
 |---|---|---|
-| **Negotiator (AI)** | Ask anything in plain English; it routes to the right tool | Multi-Agent Supervisor |
+| **Negotiator (AI)** | Ask anything in plain English; a tool-calling agent picks & chains tools (with a visible tool trace) | Hybrid agent (Analytics tool-calling agent + Rehearsal agent) |
 | **Supplier Scorecard** | Live metrics table + conversational Q&A + an AI/BI dashboard | Genie + AI/BI |
 | **Negotiation Brief** | Board-ready talking points grounded in the supplier's contract | Knowledge Assistant (RAG) |
-| **Fact-Pack Deck** | A data-driven negotiation deck (KPIs, narrative, asks) | Deck builder (LLM) |
-| **Rehearsal Room** | Role-play practice against the supplier's account manager | Vendor Rehearsal agent |
+| **Fact-Pack Deck** | A **fixed 15-slide / 5-act** negotiation deck, every number grounded in a table or contract clause; viewable as a scrolling page or **▶ Present** (16:9 slides) | Deck builder (manifest + per-act structured output, grounded via `deck_data`) |
+| **Rehearsal Room** | Role-play practice against the supplier's account manager | Vendor Rehearsal agent (isolated persona) |
 
 ---
 
@@ -29,19 +29,22 @@ A negotiator can:
 ```mermaid
 flowchart TB
   subgraph L1["Layer 1 · Experience — Databricks App (React + FastAPI)"]
-    UI["Negotiator chat · Deck Hub · Scorecard · Brief · Deck · Rehearsal"]
+    UI["Negotiator chat · Deck Hub · Scorecard · Brief · Deck (▶ Present) · Rehearsal"]
   end
 
   subgraph L2["Layer 2 · Runtime"]
-    SUP["Multi-Agent Supervisor (LangChain router)"]
+    ROUTER["Persona router (2-way: analytics vs rehearse)"]
+    ANALYST["Analytics Agent — tool-calling (bind_tools + executor loop)"]
+    REHEARSE["Rehearsal Agent — isolated adversarial persona"]
+    TOOLS["Tools: query_scorecard (Genie) · retrieve_contract_clauses (VS) · build_deck"]
     LLM["Pluggable LLM factory  get_llm()"]
-    AGENTS["Sub-agents: Brief (RAG) · Deck · Rehearsal · Scorecard"]
     SERVED["Agent-as-model (Mosaic AI Model Serving)"]
   end
 
   subgraph L3["Layer 3 · Data & Governance — Unity Catalog"]
-    DELTA["Delta tables + Metric View"]
+    DELTA["Delta tables (scorecard, regional, commodity, competitive, macro, sku_waterfall) + Metric View"]
     GENIE["Genie space (NL→SQL)"]
+    DD["deck_data — deterministic warehouse SQL"]
     VS["Vector Search index over contract MSAs"]
     VOL["Volume (contract docs)"]
     LB["Lakebase (Postgres OLTP)"]
@@ -50,9 +53,13 @@ flowchart TB
 
   PROV["Foundation Models: Claude Sonnet 4.5 (FMAPI)  ·  or LiteLLM proxy"]
 
-  UI --> SUP --> AGENTS --> LLM --> PROV
-  AGENTS --> GENIE --> DELTA
-  AGENTS --> VS --> VOL
+  UI --> ROUTER
+  ROUTER --> ANALYST --> TOOLS
+  ROUTER --> REHEARSE --> LLM
+  TOOLS --> GENIE --> DELTA
+  TOOLS --> VS --> VOL
+  ANALYST --> LLM --> PROV
+  TOOLS -- build_deck grounds via --> DD --> DELTA
   UI --> GENIE
   UI --> LB
   UI --> BI --> DELTA
@@ -60,10 +67,14 @@ flowchart TB
 ```
 
 - **Layer 1 — Experience:** the Databricks App users interact with.
-- **Layer 2 — Runtime:** the agent brains — a supervisor that routes to sub-agents,
-  all calling the pluggable LLM factory; also packaged as a served model.
+- **Layer 2 — Runtime:** a thin **persona router** sends each request to one of two
+  agents — a genuine **tool-calling Analytics Agent** (owns scorecard/brief/deck/chat;
+  binds Genie, Vector Search, and the deck builder as tools and chains them) or an
+  **isolated Rehearsal Agent** (adversarial vendor persona, its own prompt/temperature).
+  Both call the pluggable LLM factory; the whole thing is also packaged as a served model.
 - **Layer 3 — Data & Governance:** everything in Unity Catalog — the single
-  governance boundary.
+  governance boundary. The deck builder grounds on live tables via **`deck_data`
+  deterministic SQL** (Genie is the app's NL→SQL convenience, not a deck dependency).
 
 ---
 
@@ -76,24 +87,29 @@ cogs-negotiation-agent/
 ├── pyproject.toml / uv.lock   # Python deps (app runtime)
 ├── agent_model.py             # The agent packaged as an MLflow ChatAgent (for serving)
 ├── deploy_agent.py            # Log → register (UC) → deploy the served model
-├── data_foundation.py         # Builds Delta tables + Metric View
-├── build_genie.py             # Authors the Genie space
+├── data_foundation.py         # Builds core Delta tables + Metric View
+├── build_market_data.py       # Builds the 4 market/cost tables (commodity, competitive, macro, sku waterfall)
+├── build_genie.py             # Authors the Genie space (all 7 tables)
 ├── build_knowledge.py         # Builds contract Volume + chunks + Vector Search index
 ├── build_dashboard.py         # Builds/updates + publishes the AI/BI dashboard
-├── eval_agent.py              # Quality Loop (offline): LLM-judge eval over the agent
+├── eval_agent.py              # Quality Loop (offline): split analytics + rehearsal LLM-judge suites
 ├── monitor_agent.py           # Quality Loop (online): scheduled judges on live traces
 ├── server/
 │   ├── config.py              # Dual/triple-mode auth (local CLI / App SP / model-serving)
 │   ├── llm.py                 # ★ Pluggable LLM factory — get_llm(), Mosaic ↔ LiteLLM
 │   ├── data.py                # Synthetic source-of-truth data (mirrored into UC)
-│   ├── agents.py              # Brief (RAG) / Deck / Rehearsal LangChain chains
-│   ├── supervisor.py          # Multi-Agent Supervisor (LLM router)
+│   ├── agents.py              # build_negotiation_brief (RAG) · build_fact_pack (15-slide deck) · DECK_MANIFEST + pydantic models
+│   ├── analytics_agent.py     # ★ Genuine tool-calling agent (bind_tools + executor loop) — returns tool_trace
+│   ├── rehearsal_agent.py     # Isolated adversarial-vendor persona (temp 0.7)
+│   ├── tools.py               # LangChain tools: query_scorecard · retrieve_contract_clauses · build_deck (+ ToolContext)
+│   ├── deck_data.py           # Deterministic per-slide warehouse SQL for the deck
+│   ├── supervisor.py          # Thin 2-way persona router (rehearse vs analytics)
 │   ├── genie.py               # Genie Conversation API client
 │   ├── knowledge.py           # Vector Search retrieval (RAG)
 │   ├── state.py               # Lakebase (Postgres) persistence + in-memory fallback
 │   └── routes/                # FastAPI routers: catalog, agentic, genie_routes, supervisor_routes
 └── frontend/                  # React + Vite + TS + Tailwind
-    └── src/pages/             # Hub, Negotiator, Scorecard, Brief, Deck, Rehearsal
+    └── src/pages/             # Hub, Negotiator (shows tool trace), Scorecard, Brief, Deck (+ ▶ Present mode), Rehearsal
 ```
 
 ---
@@ -139,8 +155,21 @@ Detects the runtime and authenticates accordingly:
   etc. Queried with `MEASURE(...)`. This is the single source of truth that Genie
   and the dashboard agree on.
 
-> The numbers originate in `server/data.py` so the app and UC stay in sync; in a
-> real deployment these tables come from ingestion + a certified metric layer.
+**Market & cost-breakdown tables** (`build_market_data.py`, seed 8451) — added to
+ground the deck's Market Context and Cost Breakdown acts in real data:
+- **`commodity_input_costs`** — 24-month index series (PET resin, aluminum,
+  sugar/HFCS, concentrate, corrugate, diesel freight, natural gas), base 100 + YoY.
+- **`competitive_benchmarks`** — shelf-price benchmarks vs competitors + alt-supplier
+  quotes + price gaps, by product and region.
+- **`macro_indicators`** — FX (USD/MXN, USD/EUR), tariffs, labor inflation,
+  supply-chain disruption index, by quarter, each with a negotiation `exposure_note`.
+- **`sku_cost_waterfall`** — per-SKU materials→manufacturing→packaging→freight→duty
+  → landed, plus `prior_year_landed` / `proposed_landed` (drives the YoY bridge,
+  margin, and scenario slides).
+
+> The numbers originate in `server/data.py` / `build_market_data.py` so the app and
+> UC stay in sync; in a real deployment these tables come from ingestion + a
+> certified metric layer.
 
 ### 4.4 Genie space — `build_genie.py`
 
@@ -161,24 +190,62 @@ and benchmark questions. Turns plain-English questions into governed SQL.
 - `knowledge.retrieve()` pulls the top-k clauses *filtered to the supplier*; the
   Brief agent injects them and **cites the section names**.
 
-### 4.6 Sub-agents — `server/agents.py`
+### 4.6 Builders & tools — `server/agents.py`, `server/tools.py`, `server/deck_data.py`
 
-LangChain chains, all on `get_llm()`:
-- **`build_negotiation_brief`** — RAG-grounded brief (retrieves contract clauses →
-  prompt → brief that cites clauses + numbers).
-- **`build_fact_pack`** — returns a structured JSON deck (title, hypothesis, KPIs,
-  sections, asks) the React deck viewer renders.
-- **`rehearse_turn`** — role-plays the supplier's key account manager, in character.
+The capability functions, all on `get_llm()`:
+- **`build_negotiation_brief`** (`agents.py`) — RAG-grounded brief (retrieves
+  contract clauses → prompt → brief that cites clauses + numbers).
+- **`build_fact_pack`** (`agents.py`) — the **fixed 15-slide / 5-act** deck builder.
+  A module-level **`DECK_MANIFEST`** is the single source of truth for slide
+  number/title/act/grounding. Generation is **per-act** (5 calls) using
+  `get_llm(...).with_structured_output(DeckAct)` over pydantic models
+  (`SlideContent`, `DataCallout`, `ChartSpec`), each injected with that act's
+  manifest slice + its **grounded data** from `deck_data`. A validate/repair pass
+  snaps titles back to the manifest, retries an act once, and fills any still-missing
+  slide with a structured placeholder — so it **never returns a deck missing a
+  slide**. Output: `{title, subtitle, objective, supplier, acts:[{act, slides:[…]}],
+  format_version:"15-slide-v1"}`. *(Gotcha fixed: act generation needs
+  `max_tokens=8192` and a downsampled commodity series, or it truncates at the 4096
+  output cap and an act degrades to placeholders.)*
+- **`rehearse_turn`** (`agents.py`) — thin shim delegating to `rehearsal_agent`.
 
-### 4.7 Multi-Agent Supervisor — `server/supervisor.py`
+**Tools (`server/tools.py`)** — the Analytics Agent's bound tools:
+`query_scorecard(question)` → Genie, `retrieve_contract_clauses(query, supplier_key)`
+→ Vector Search, `build_deck(supplier_key, objective, scorecard_facts, clauses)` →
+`build_fact_pack`. Structured side-outputs (SQL/rows/parsed deck) are captured via a
+`contextvars`-backed **`ToolContext`** so the LLM-facing tool schemas stay clean.
 
-A pure-LangChain LLM **router** (no LangGraph). Given any message it classifies
-intent → `{scorecard, brief, deck, rehearse, chat}` and extracts the supplier,
-then dispatches:
-- `scorecard`/`chat` → **Genie**
-- `brief` → RAG brief · `deck` → deck builder · `rehearse` → rehearsal agent
+**`server/deck_data.py`** — deterministic per-slide warehouse SQL (statement
+execution on warehouse `a455a68035c1f578`; every cell coerced via `_num()` since the
+API returns strings). Functions: `partnership_overview`, `commodity_trends`,
+`competitive_landscape`, `macro_factors`, `cost_waterfall`, `yoy_bridge`,
+`margin_impact`, `trade_funding`. Each degrades to `[]`/`{}` if a table is missing,
+so the deck builds even before the data load runs.
 
-Returns a unified envelope the UI renders by `route` (text / table+SQL / deck).
+### 4.7 Hybrid agent — persona router + Analytics Agent + Rehearsal Agent
+
+Instead of one classify-then-dispatch supervisor, the runtime is a **hybrid** split
+along persona/risk lines (pure LangChain, no LangGraph):
+
+- **`server/supervisor.py`** — a thin **2-way persona router**: detect rehearsal
+  intent (+ supplier) → `rehearsal_agent`; everything else → `analytics_agent`.
+  Returns the unified envelope the UI renders by `route` (text / table+SQL / deck).
+- **`server/analytics_agent.py`** — a **genuine tool-calling agent**:
+  `get_llm().bind_tools([query_scorecard, retrieve_contract_clauses, build_deck])`
+  plus a manual executor loop (≤4 iterations). The LLM *decides* which tools to call
+  and **chains** them — e.g. its DECK PROTOCOL forces `query_scorecard →
+  retrieve_contract_clauses → build_deck` so a deck is grounded in live numbers +
+  cited clauses. It returns a **`tool_trace`** (`{tool, args}[]`) the Negotiator UI
+  renders as a "🛠 Tools used" strip. Neutral, grounded, pro-Kroger persona.
+- **`server/rehearsal_agent.py`** — the adversarial supplier-KAM persona, **isolated**
+  in its own module with its own system prompt and temperature (0.7) so it can be
+  prompted, guard-railed, and evaluated independently of the analytics surfaces (a
+  single shared prompt can't be both a neutral analyst and a tough vendor).
+
+> Why hybrid, not one tool-calling agent: the rehearsal persona genuinely conflicts
+> with the analyst persona, so it gets its own agent; everything else coheres under
+> one tool-calling agent. Most production "multi-agent" systems split this way —
+> along persona/risk/governance lines, not one-agent-per-feature.
 
 ### 4.8 Agent-as-model — `agent_model.py` + `deploy_agent.py`
 
@@ -189,13 +256,26 @@ the agent its own queryable REST endpoint, inference tables, evaluation, and
 monitoring.
 
 - Driven by `custom_inputs.task` = `brief | deck | rehearse | chat`.
+- **Routing inside `predict()`:** `rehearse` → rehearsal agent; **`deck` →
+  `build_fact_pack` directly, `brief` → `build_negotiation_brief` directly** (the
+  deterministic builders, *not* the tool-calling agent); `chat`/NL → the Analytics
+  Agent. This is deliberate: on a Model Serving endpoint the agent's first step
+  (`query_scorecard` → Genie) fails under the automatic-auth identity, so routing
+  `deck` through the agent would make it bail to prose. The builders are Genie-free —
+  the deck grounds via `deck_data` **direct warehouse SQL** and the brief via Vector
+  Search — so the served deck is fully grounded *and* the path also works for
+  eval/monitoring (which invoke as an SP with no user context).
 - Declares the FM endpoint, embedding endpoint, Vector Search index, Genie space,
-  and SQL warehouse as **serving resources** (automatic auth).
+  the SQL warehouse, **and the 7 `kroger_demo.cogs` tables** (`DatabricksTable`) as
+  **serving resources**. Declaring the tables grants the automatic-auth identity
+  `SELECT`, so `deck_data` SQL succeeds and the served deck grounds on live data
+  (verified: HTTP 200, 15/15 slides, 0 placeholders, callouts sourced to
+  `commodity_trends` / `cost_waterfall`).
 - **The LLM switch is preserved** here too — set `LLM_PROVIDER` as the endpoint env.
-- **Design note:** the served model is **self-contained** — `brief` (RAG), `deck`,
-  `rehearse`, and a grounded `chat` over bundled facts. Genie-backed NL→SQL routing
-  lives in the **app**, because a served model runs Genie under an automatic-auth
-  identity that can't execute the downstream SQL.
+- **OBO deferred:** the served model uses a single automatic-auth identity (no
+  per-user RLS). On-behalf-of-user auth (so a Pepsi buyer ≠ Coke buyer) is the next
+  governance milestone; on Model Serving it's Public Preview + admin-gated and would
+  also bypass eval/monitoring, so per-user OBO is better realized on the Apps path.
 
 ### 4.9 Lakebase persistence — `server/state.py`
 
@@ -260,12 +340,23 @@ The deployed agent is observed and judged, not just shipped:
 **A negotiator asks the Negotiator: "draft a brief for Pepsi to claw back COGS"**
 ```
 Browser → /api/supervisor/ask
-  → supervisor classifies: route=brief, supplier=pepsi
-  → agents.build_negotiation_brief(pepsi, objective)
+  → persona router: not rehearse → analytics_agent.run(...)
+  → Analytics Agent (bind_tools + loop) picks retrieve_contract_clauses → build_negotiation_brief path
       → knowledge.retrieve(...)  → Vector Search index → top contract clauses
       → ChatPromptTemplate | get_llm()  → Claude (Mosaic) → grounded brief
-  → state.save_artifact("briefs", …)  → Lakebase
-  → returns {route:"brief", answer, sources} → UI renders brief + clause chips
+  → returns {route:"analytics", answer, tool_trace} → UI renders brief + "🛠 Tools used"
+```
+
+**A negotiator asks: "build a deck for Pepsi" (the 3-hop tool chain)**
+```
+Browser → /api/supervisor/ask → analytics_agent.run(...)
+  → tool 1: query_scorecard(...)            → Genie → live metrics
+  → tool 2: retrieve_contract_clauses(pepsi) → Vector Search → citable clauses
+  → tool 3: build_deck(pepsi, …, scorecard_facts, clauses)
+      → build_fact_pack → 5 per-act with_structured_output calls,
+        each grounded by deck_data warehouse SQL → 15-slide deck JSON
+  → returns {route:"analytics", deck, tool_trace:[query_scorecard, retrieve_contract_clauses, build_deck]}
+  → UI renders the deck (scroll or ▶ Present) + the tool trace
 ```
 
 **The Scorecard table loads**
@@ -294,9 +385,14 @@ POST /serving-endpoints/agents_…/invocations
 - Serverless workspace (for Lakebase + Apps)
 
 ### One-time data/AI build (workspace-side)
+For a **fresh workspace**, run `python bootstrap.py` — it executes all five steps
+below in dependency order, auto-creates the Vector Search endpoint, and captures
+created IDs (Genie space, dashboard, warehouse) into `deploy_state.json` (see
+README → "Deploy to a new workspace"). To run steps individually against cogs-demo:
 ```bash
-DATABRICKS_CONFIG_PROFILE=cogs-demo python data_foundation.py     # Delta + Metric View
-DATABRICKS_CONFIG_PROFILE=cogs-demo python build_genie.py         # Genie space
+DATABRICKS_CONFIG_PROFILE=cogs-demo python data_foundation.py     # core Delta + Metric View
+DATABRICKS_CONFIG_PROFILE=cogs-demo python build_market_data.py   # commodity/competitive/macro/sku tables
+DATABRICKS_CONFIG_PROFILE=cogs-demo python build_genie.py         # Genie space (all 7 tables)
 DATABRICKS_CONFIG_PROFILE=cogs-demo python build_knowledge.py     # Volume + Vector Search
 DATABRICKS_CONFIG_PROFILE=cogs-demo python build_dashboard.py     # AI/BI dashboard
 ```
@@ -352,11 +448,20 @@ Then redeploy. No agent code changes.
 
 ## 8. Design decisions & known limitations
 
-- **Synthetic-but-real data.** Numbers originate in `server/data.py` and are
-  materialized as real Delta tables; swap ingestion + a certified metric layer for
-  production.
-- **Served model is Genie-free** (self-contained); the app handles Genie NL→SQL
-  where the app SP has working data access.
+- **Synthetic-but-real data.** Numbers originate in `server/data.py` /
+  `build_market_data.py` and are materialized as real Delta tables; swap ingestion +
+  a certified metric layer for production.
+- **Hybrid agent, not one-agent-per-feature.** A 2-way persona router splits the
+  coherent analyst surfaces (one tool-calling agent) from the conflicting adversarial
+  rehearsal persona (its own agent). Tool selection is the LLM's job, not hardcoded.
+- **Deck is code-owned structure, LLM-filled content.** A fixed 15-slide manifest +
+  per-act structured output + validate/repair guarantees the format; every numeric
+  callout is sourced to a table or contract clause (no fabrication).
+- **Served model is Genie-free** — `deck`/`brief` run the deterministic builders
+  (deck grounds via `deck_data` direct SQL, declared `DatabricksTable` resources give
+  the auto-auth identity `SELECT`); the app's Analytics Agent uses Genie for NL→SQL.
+- **OBO deferred.** The served model is single-identity (no per-user RLS); OBO is the
+  next governance step, best done on the Apps path.
 - **Regional viz uses bars, not a choropleth** — the data is by Census division,
   not US states/countries (a choropleth needs standard region keys).
 - **"Avg COGS Inflation"** on the dashboard is a simple average (filter-friendly);
@@ -374,7 +479,8 @@ Then redeploy. No agent code changes.
 | App URL | `https://cogs-negotiation-agent-7405614449041750.10.azure.databricksapps.com` |
 | App service principal | `a432c266-0858-4f97-aa29-4c726a30c0eb` |
 | Catalog / schema | `kroger_demo.cogs` |
-| Delta tables | `supplier_scorecard`, `regional_performance`, `contract_chunks` |
+| Delta tables (core) | `supplier_scorecard`, `regional_performance`, `contract_chunks` |
+| Delta tables (market/cost) | `commodity_input_costs`, `competitive_benchmarks`, `macro_indicators`, `sku_cost_waterfall` |
 | Metric View | `kroger_demo.cogs.landed_cost_metrics` |
 | Volume | `/Volumes/kroger_demo/cogs/contracts/` |
 | Genie space | `01f1642219cf135cb84f7e0dbc8d6957` |

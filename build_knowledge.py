@@ -1,11 +1,14 @@
 """Knowledge Assistant data foundation: contract docs -> Volume + Vector Search.
 
-1. Creates a UC Volume kroger_demo.cogs.contracts and writes a supplier
+1. Creates a UC Volume <catalog>.<schema>.contracts and writes a supplier
    agreement (MSA) document per supplier.
 2. Chunks each agreement (clause-level) into a Delta table contract_chunks
    (CDF enabled) — the source for the vector index.
-3. Creates a Delta Sync Vector Search index with managed embeddings
-   (databricks-gte-large-en) on the existing 'kroger-recipe-search' endpoint.
+3. Creates the Vector Search endpoint if it doesn't exist, then a Delta Sync
+   Vector Search index with managed embeddings (databricks-gte-large-en) on it.
+
+Catalog/schema/endpoint/embedding model are resolved from deploy_config so the
+knowledge base is portable to any workspace.
 
 Run (VPN on): DATABRICKS_CONFIG_PROFILE=cogs-demo .venv/bin/python build_knowledge.py
 """
@@ -13,23 +16,27 @@ Run (VPN on): DATABRICKS_CONFIG_PROFILE=cogs-demo .venv/bin/python build_knowled
 from __future__ import annotations
 
 import io
-import time
 
-from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
+from deploy_config import (
+    CATALOG as CAT,
+    SCHEMA as SCH,
+    EMBED_ENDPOINT as EMBED_MODEL,
+    VS_ENDPOINT,
+    get_workspace_client,
+    resolve_warehouse_id,
+    write_state,
+)
 from server.data import SUPPLIERS
 
-PROFILE = "cogs-demo"
-WAREHOUSE = "a455a68035c1f578"
-CAT, SCH = "kroger_demo", "cogs"
 VOLUME = f"{CAT}.{SCH}.contracts"
 CHUNKS = f"{CAT}.{SCH}.contract_chunks"
 INDEX = f"{CAT}.{SCH}.contract_chunks_index"
-VS_ENDPOINT = "kroger-recipe-search"
-EMBED_MODEL = "databricks-gte-large-en"
 
-w = WorkspaceClient(profile=PROFILE)
+w = get_workspace_client()
+# Resolved lazily in main(); placeholder so module import never makes a live call.
+WAREHOUSE = ""
 
 
 def run(sql: str, label: str):
@@ -110,6 +117,21 @@ def upload_docs_and_chunks():
     run(f"INSERT INTO {CHUNKS} VALUES\n" + ",\n".join(values), f"load {len(values)} chunks")
 
 
+def ensure_endpoint():
+    """Create the Vector Search endpoint if it isn't already present."""
+    from databricks.sdk.service.vectorsearch import EndpointType
+
+    names = [e.name for e in w.vector_search_endpoints.list_endpoints()]
+    if VS_ENDPOINT in names:
+        print(f"  • vector search endpoint {VS_ENDPOINT} already exists")
+        return
+    print(f"  • creating vector search endpoint {VS_ENDPOINT} (waiting for PROVISIONED) …")
+    w.vector_search_endpoints.create_endpoint_and_wait(
+        name=VS_ENDPOINT, endpoint_type=EndpointType.STANDARD
+    )
+    print("  • endpoint ready")
+
+
 def create_index():
     existing = [ix.name for ix in w.vector_search_indexes.list_indexes(endpoint_name=VS_ENDPOINT)]
     if INDEX in existing:
@@ -138,9 +160,13 @@ def create_index():
 
 
 def main():
+    global WAREHOUSE
+    WAREHOUSE = resolve_warehouse_id(w)
     print(f"Building knowledge base in {CAT}.{SCH}")
     upload_docs_and_chunks()
+    ensure_endpoint()
     create_index()
+    write_state(contract_index=INDEX, vs_endpoint=VS_ENDPOINT)
     print("\nSubmitted. The index will take a few minutes to come ONLINE + sync.")
     print(f"  Volume:  /Volumes/{CAT}/{SCH}/contracts/")
     print(f"  Chunks:  {CHUNKS}")

@@ -11,10 +11,11 @@ interface Turn {
 }
 
 const routeStyle: Record<string, string> = {
+  analytics: "text-cyan border-cyan/40",
+  rehearse: "text-purple border-purple/40",
   scorecard: "text-orange border-orange/40",
   brief: "text-mint border-mint/40",
   deck: "text-cyan border-cyan/40",
-  rehearse: "text-purple border-purple/40",
   chat: "text-white/60 border-white/20",
 };
 
@@ -122,6 +123,20 @@ function AssistantBubble({ r }: { r: SupervisorResult }) {
       </div>
       {r.answer && <div className="whitespace-pre-wrap leading-relaxed text-white/90">{r.answer}</div>}
 
+      {r.tool_trace && r.tool_trace.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[0.58rem] uppercase tracking-wide text-white/40">🛠 Tools used</span>
+          {r.tool_trace.map((c, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              {i > 0 && <span className="text-white/25 text-[0.7rem]">→</span>}
+              <span className="text-[0.62rem] font-mono text-cyan/90 bg-cyan/10 border border-cyan/25 rounded-full px-2 py-0.5">
+                {c.tool}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {r.rows && r.rows.length > 0 && r.columns && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
           <table className="w-full text-[0.8rem]">
@@ -142,18 +157,23 @@ function AssistantBubble({ r }: { r: SupervisorResult }) {
       {r.deck && (
         <div className="mt-3 rounded-xl border border-cyan/25 bg-cyan/[0.04] p-3">
           <div className="font-extrabold text-cyan">{r.deck.title}</div>
-          <div className="text-[0.75rem] text-white/70 mt-1">{r.deck.hypothesis}</div>
-          {r.deck.kpis?.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-              {r.deck.kpis.map((k, i) => (
-                <div key={i} className="bg-black/30 rounded-lg p-2 text-center">
-                  <div className="text-[0.55rem] uppercase text-white/45">{k.label}</div>
-                  <div className="font-extrabold text-sm">{k.value}</div>
-                  <div className="text-[0.6rem] text-white/60">{k.delta}</div>
-                </div>
-              ))}
+          <div className="text-[0.7rem] text-white/60 mt-0.5">{r.deck.subtitle}</div>
+          {r.deck.acts?.map((act, ai) => (
+            <div key={ai} className="mt-3">
+              <div className="text-[0.55rem] font-extrabold uppercase tracking-widest text-orange">
+                Act {ai + 1} · {act.act}
+              </div>
+              <ul className="mt-1 space-y-1">
+                {act.slides?.map((s) => (
+                  <li key={s.slide_no} className="text-[0.72rem] text-white/80">
+                    <span className="font-mono text-cyan/80">{String(s.slide_no).padStart(2, "0")}</span>{" "}
+                    <span className="font-bold">{s.title}</span>
+                    {s.headline && <span className="text-white/55"> — {s.headline}</span>}
+                  </li>
+                ))}
+              </ul>
             </div>
-          )}
+          ))}
         </div>
       )}
 

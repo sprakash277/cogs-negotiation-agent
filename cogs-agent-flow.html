@@ -208,7 +208,7 @@
 
   <div class="wordmark">Kroger Sourcing &nbsp;·&nbsp; Databricks &nbsp;·&nbsp; Prepared by Sumit Prakash</div>
   <h1>COGS Negotiation Agent — <span class="cyan">How It Works</span></h1>
-  <p class="sub2">Three layers — the app routes through the Supervisor and calls Genie directly, while reading/writing Lakebase (OLTP) inside Unity Catalog. LLM calls go through a <b style="color:var(--cyan)">pluggable router</b> (one LangChain interface, Mosaic ↔ LiteLLM).</p>
+  <p class="sub2">Three layers — a <b>persona router</b> sends each request to a tool-calling <b>Analytics Agent</b> (chains Genie · RAG · deck) or an isolated <b>Rehearsal Agent</b>, while the app reads/writes Lakebase (OLTP) inside Unity Catalog. LLM calls go through a <b style="color:var(--cyan)">pluggable router</b> (one LangChain interface, Mosaic ↔ LiteLLM).</p>
   <div class="status">
     <span class="chip ga">Unity Catalog · GA</span>
     <span class="chip ga">Metric Views · GA</span>
@@ -226,7 +226,7 @@
       <div class="band-h">🛒 Databricks App · Negotiator Console <span class="r">Category Negotiators · Pepsi / Coke / KDP</span></div>
       <div class="feat-row">
         <div class="feat"><span class="em">📊</span><b>Supplier Scorecard</b><small>spend · COGS · trend<br><span class="pw">Genie</span></small></div>
-        <div class="feat"><span class="em">📑</span><b>Fact-Pack &amp; Deck</b><small>auto-built<br><span class="pw">Genie + Deck Builder</span></small></div>
+        <div class="feat"><span class="em">📑</span><b>Fact-Pack &amp; Deck</b><small>15-slide · grounded<br><span class="pw">Deck Builder + ▶ Present</span></small></div>
         <div class="feat"><span class="em">✍️</span><b>Negotiation Brief</b><small>talking points<br><span class="pw">Knowledge Assistant</span></small></div>
         <div class="feat"><span class="em">⚔️</span><b>Rehearsal Room</b><small>role-play vendor<br><span class="pw">Vendor Agent</span></small></div>
       </div>
@@ -252,12 +252,12 @@
               <div class="gate-chips"><span>Guardrails</span><span>Rate limit</span><span>Usage</span><span>Payload log</span><span>Fallback</span></div>
             </div>
             <div class="route">② route ↓</div>
-            <div class="agent"><div class="agent-pulse"></div><span class="agent-ic">🧭</span><strong>Multi-Agent Supervisor</strong></div>
+            <div class="agent"><div class="agent-pulse"></div><span class="agent-ic">🧭</span><strong>Persona Router → Analytics Agent (tool-calling) + Rehearsal Agent</strong></div>
             <div class="grid2">
-              <div class="mini mini-cy"><span class="em">🔎</span><b>Genie Space</b><small>NL→SQL · scorecard</small></div>
-              <div class="mini"><span class="em">📚</span><b>Knowledge Asst.</b><small>RAG · brief</small></div>
-              <div class="mini mini-pu"><span class="em">🎭</span><b>Vendor Rehearsal</b><small>role-play</small></div>
-              <div class="mini mini-gr"><span class="em">🛠️</span><b>Deck Builder</b><small>UC Function</small></div>
+              <div class="mini mini-cy"><span class="em">🔎</span><b>query_scorecard</b><small>Genie · tool</small></div>
+              <div class="mini"><span class="em">📚</span><b>retrieve_clauses</b><small>Vector Search · tool</small></div>
+              <div class="mini mini-gr"><span class="em">🛠️</span><b>build_deck</b><small>15-slide · grounded</small></div>
+              <div class="mini mini-pu"><span class="em">🎭</span><b>Rehearsal Agent</b><small>isolated persona</small></div>
             </div>
             <div class="fm-note">agents call get_llm() · provider-pluggable ↓</div>
             <div class="fm">
@@ -337,7 +337,7 @@
       <div class="uc-cols">
         <div class="uc-group">
           <h4>Well-Modeled Data Domains</h4>
-          <div class="mini"><span class="em">🗄️</span><div><b>Delta Tables</b><small>spend · COGS · volume · supplier</small></div></div>
+          <div class="mini"><span class="em">🗄️</span><div><b>Delta Tables</b><small>scorecard · commodity · competitive · macro · SKU waterfall</small></div></div>
           <div class="mini"><span class="em">📁</span><div><b>Volumes</b><small>contracts · MSAs · memos</small></div></div>
         </div>
         <div class="uc-group">

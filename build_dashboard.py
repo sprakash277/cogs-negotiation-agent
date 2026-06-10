@@ -11,22 +11,21 @@ from __future__ import annotations
 
 import json
 
-from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
-PROFILE = "cogs-demo"
-WAREHOUSE = "a455a68035c1f578"
-PARENT = "/Users/sumit.prakash@databricks.com"
-DASHBOARD_ID = "01f1643845191b049c9a3acf7531495b"
-w = WorkspaceClient(profile=PROFILE)
+from deploy_config import FQ, get_state, get_workspace_client, resolve_parent_path, resolve_warehouse_id, write_state
+
+w = get_workspace_client()
+# Resolved lazily in main(); placeholders so module import never makes a live call.
+WAREHOUSE = ""
 
 SUPPLIERS_SQL = (
     "SELECT supplier, category, annual_spend, cogs_per_unit, unit_volume, landed_cost_index, "
     "yoy_cogs_change_pct, yoy_volume_change_pct, trade_funds_pct, fill_rate_pct, otif_pct, "
-    "contract_expiry, rebate_tier FROM kroger_demo.cogs.supplier_scorecard"
+    f"contract_expiry, rebate_tier FROM {FQ}.supplier_scorecard"
 )
 REGIONS_SQL = (
-    "SELECT region, dollar_sales, yoy_pct, unit_sales, stores FROM kroger_demo.cogs.regional_performance"
+    f"SELECT region, dollar_sales, yoy_pct, unit_sales, stores FROM {FQ}.regional_performance"
 )
 
 
@@ -92,7 +91,7 @@ def build_serialized():
         "name": "overview", "displayName": "Overview", "pageType": "PAGE_TYPE_CANVAS",
         "layout": [
             text("title", "## COGS Negotiation — Beverage Category", 0, 0, 6, 1),
-            text("subtitle", "Certified COGS, landed cost & supplier scorecard · trailing 52 weeks · source: kroger_demo.cogs · use the Filters tab", 0, 1, 6, 1),
+            text("subtitle", f"Certified COGS, landed cost & supplier scorecard · trailing 52 weeks · source: {FQ} · use the Filters tab", 0, 1, 6, 1),
             counter_agg("c-spend", "sum(annual_spend)", "SUM(`annual_spend`)", "Total Annual Spend ($)", 0, 2),
             counter_agg("c-infl", "avg(yoy_cogs_change_pct)", "AVG(`yoy_cogs_change_pct`)", "Avg COGS Inflation (%)", 2, 2),
             counter_agg("c-otif", "avg(otif_pct)", "AVG(`otif_pct`)", "Avg OTIF (%)", 4, 2),
@@ -134,17 +133,37 @@ def build_serialized():
 
 
 def main():
+    global WAREHOUSE
+    WAREHOUSE = resolve_warehouse_id(w)
     print("Testing queries…")
     test_query(SUPPLIERS_SQL, "suppliers")
     test_query(REGIONS_SQL, "regions")
-    print("Updating dashboard…")
-    w.api_client.do("PATCH", f"/api/2.0/lakeview/dashboards/{DASHBOARD_ID}", body={
-        "display_name": "COGS Negotiation — Beverage Category",
-        "serialized_dashboard": build_serialized(),
-    })
+
+    serialized = build_serialized()
+    display_name = "COGS Negotiation — Beverage Category"
+    dashboard_id = get_state("dashboard_id")
+    if dashboard_id:
+        print(f"Updating dashboard {dashboard_id}…")
+        w.api_client.do("PATCH", f"/api/2.0/lakeview/dashboards/{dashboard_id}", body={
+            "display_name": display_name,
+            "serialized_dashboard": serialized,
+        })
+    else:
+        print("Creating dashboard…")
+        resp = w.api_client.do("POST", "/api/2.0/lakeview/dashboards", body={
+            "display_name": display_name,
+            "parent_path": resolve_parent_path(w),
+            "serialized_dashboard": serialized,
+            "warehouse_id": WAREHOUSE,
+        })
+        dashboard_id = (resp or {}).get("dashboard_id") or (resp or {}).get("id")
+        if not dashboard_id:
+            raise RuntimeError(f"Dashboard create returned no dashboard_id: {resp}")
+
     print("Publishing…")
-    w.api_client.do("POST", f"/api/2.0/lakeview/dashboards/{DASHBOARD_ID}/published", body={"warehouse_id": WAREHOUSE})
-    print("PUBLISHED with global filters")
+    w.api_client.do("POST", f"/api/2.0/lakeview/dashboards/{dashboard_id}/published", body={"warehouse_id": WAREHOUSE})
+    write_state(dashboard_id=dashboard_id)
+    print(f"PUBLISHED with global filters — dashboard id: {dashboard_id}")
 
 
 if __name__ == "__main__":

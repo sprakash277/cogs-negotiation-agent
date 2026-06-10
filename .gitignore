@@ -19,3 +19,6 @@ npm-debug.log*
 
 # Databricks
 .databricks/
+
+# bootstrap.py runtime output — workspace-specific created IDs, not committed
+deploy_state.json

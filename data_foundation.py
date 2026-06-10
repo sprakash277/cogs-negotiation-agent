@@ -10,19 +10,14 @@ Run (VPN on): DATABRICKS_CONFIG_PROFILE=cogs-demo .venv/bin/python data_foundati
 
 from __future__ import annotations
 
-import os
-
-from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
+from deploy_config import CATALOG, SCHEMA, get_workspace_client, resolve_warehouse_id, write_state
 from server.data import REGIONS, SUPPLIERS
 
-PROFILE = os.environ.get("DATABRICKS_PROFILE", "cogs-demo")
-WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID", "a455a68035c1f578")  # Serverless Starter
-CATALOG = "kroger_demo"
-SCHEMA = "cogs"
-
-w = WorkspaceClient(profile=PROFILE)
+w = get_workspace_client()
+# Resolved lazily in main() so importing this module never makes a live call.
+WAREHOUSE_ID = ""
 
 
 def run(sql: str, label: str) -> None:
@@ -136,11 +131,14 @@ measures:
 
 
 def main() -> None:
+    global WAREHOUSE_ID
+    WAREHOUSE_ID = resolve_warehouse_id(w)
     print(f"Building data foundation in {CATALOG}.{SCHEMA} (warehouse {WAREHOUSE_ID})")
     run(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA} COMMENT 'COGS negotiation agent data'", "create schema")
     build_supplier_table()
     build_region_table()
     build_metric_view()
+    write_state(catalog=CATALOG, schema=SCHEMA, warehouse_id=WAREHOUSE_ID)
     print("\nDone. Tables + metric view ready:")
     print(f"  {CATALOG}.{SCHEMA}.supplier_scorecard")
     print(f"  {CATALOG}.{SCHEMA}.regional_performance")

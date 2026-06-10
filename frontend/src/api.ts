@@ -28,15 +28,36 @@ export interface HubCard {
   open_negotiation: boolean;
 }
 
-export interface Kpi { label: string; value: string; delta: string; tone: string; }
-export interface DeckSection { heading: string; narrative: string; callout: string; }
+// --- Fixed 15-slide, 5-act deck (format_version "15-slide-v1") ------------- #
+export interface DataCallout { label: string; value: string; delta?: string | null; source: string; }
+export type ChartKind = "line" | "waterfall" | "bridge" | "bars" | "scenario" | "none";
+export interface ChartSpec { kind: ChartKind; series: Record<string, any>[]; }
+export interface Slide {
+  slide_no: number;
+  title: string;
+  headline: string;
+  narrative: string;
+  bullets: string[];
+  data_callouts: DataCallout[];
+  chart?: ChartSpec | null;
+  citations: string[];
+}
+export interface Act { act: string; slides: Slide[]; }
 export interface Deck {
-  title: string; subtitle: string; hypothesis: string;
-  kpis: Kpi[]; sections: DeckSection[]; asks: string[];
+  title: string;
+  subtitle: string;
+  objective: string;
+  supplier: string;
+  acts: Act[];
+  format_version: string;
 }
 
+export interface ToolCall { tool: string; args: Record<string, any>; }
+
 export interface SupervisorResult {
-  route: "scorecard" | "brief" | "deck" | "rehearse" | "chat";
+  // Hybrid architecture routes: "analytics" (tool-calling analyst) | "rehearse"
+  // (adversarial vendor). Old feature routes kept for back-compat.
+  route: "analytics" | "rehearse" | "scorecard" | "brief" | "deck" | "chat";
   supplier_key?: string | null;
   supplier?: string;
   answer?: string | null;
@@ -44,6 +65,7 @@ export interface SupervisorResult {
   columns?: string[];
   rows?: string[][];
   deck?: Deck;
+  tool_trace?: ToolCall[];
 }
 
 export interface LlmStatus {

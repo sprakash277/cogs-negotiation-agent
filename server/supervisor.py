@@ -1,17 +1,19 @@
-"""Multi-Agent Supervisor — routes a natural-language request to the right sub-agent.
+"""Top-level persona router — the thin 2-way split of the hybrid architecture.
 
-This is the Layer-2 orchestration glue. Instead of the user picking a feature,
-they just ask; the supervisor (an LLM router built on the pluggable get_llm())
-classifies intent + extracts the supplier, then dispatches to:
+The old 5-way classify-then-dispatch is gone. Routing now happens along
+persona/risk lines, not feature lines:
 
-  scorecard -> Genie (NL->SQL over kroger_demo.cogs)
-  brief     -> Knowledge-Assistant-grounded negotiation brief
-  deck      -> Fact-Pack deck builder
-  rehearse  -> Vendor rehearsal agent
-  chat      -> grounded general answer
+  rehearse  -> Rehearsal Agent   (adversarial vendor persona, temp 0.7, isolated)
+  analytics -> Analytics Agent   (neutral, grounded tool-calling analyst; owns
+                                  scorecard / brief / deck / chat — the LLM picks
+                                  and chains the tools itself)
 
-Pure LangChain (no LangGraph dependency) — the router is one classify call,
-then a deterministic dispatch in Python.
+So the only decision left for the router is "is this a rehearsal turn?" — and if
+so, which supplier (rehearsal NEEDS a supplier to role-play). Everything else
+falls through to the Analytics Agent, which decides for itself whether to query
+Genie, retrieve contract clauses, build a deck, or just chat.
+
+Pure LangChain (no LangGraph) — one tiny LLM classify, then dispatch.
 """
 
 from __future__ import annotations
@@ -20,30 +22,22 @@ import json
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from . import genie
-from .agents import build_fact_pack, build_negotiation_brief, rehearse_turn
+from . import analytics_agent, rehearsal_agent
 from .data import get_supplier
 from .llm import get_llm
 
-DEFAULT_OBJECTIVE = (
-    "Reduce landed COGS and improve trade-fund efficiency for the upcoming contract cycle."
-)
+ROUTER_SYSTEM = """You are the persona router for a Kroger COGS negotiation assistant.
+Decide whether the user wants to ROLE-PLAY / REHEARSE a live negotiation against a
+supplier (practice, simulate, "negotiate against", "let's role-play", "you be the
+vendor"), versus anything analytical (questions about numbers/metrics, drafting a
+brief, building a deck, or general chat).
 
-ROUTER_SYSTEM = """You are the supervisor/router for a Kroger COGS negotiation assistant.
-Classify the user's request into exactly ONE route and extract the supplier and a clean query.
-
-Routes:
-- scorecard: questions about numbers, metrics or data (spend, COGS, landed cost, OTIF, fill rate, rebates, trade funds, regions, rankings, comparisons). Answered by Genie NL->SQL.
-- brief: requests to prepare/draft a negotiation brief, talking points, or strategy memo.
-- deck: requests to build a fact-pack, deck, slides, or presentation.
-- rehearse: requests to role-play, practice, simulate, or "negotiate against" the vendor.
-- chat: greetings or anything that doesn't fit the above.
-
-Suppliers (supplier_key): pepsi (PepsiCo), coke (The Coca-Cola Company), kdp (Keurig Dr Pepper).
-If no supplier is clearly referenced, set supplier_key to null.
+Rehearsal REQUIRES a supplier to role-play. Suppliers (supplier_key): pepsi (PepsiCo),
+coke (The Coca-Cola Company), kdp (Keurig Dr Pepper). If no supplier is clearly
+referenced, set supplier_key to null.
 
 Respond with ONLY a JSON object, no prose:
-{"route": "scorecard|brief|deck|rehearse|chat", "supplier_key": "pepsi|coke|kdp|null", "query": "<cleaned, self-contained question or objective>"}"""
+{"rehearse": true|false, "supplier_key": "pepsi|coke|kdp|null"}"""
 
 
 def _classify(message: str) -> dict:
@@ -57,72 +51,32 @@ def _classify(message: str) -> dict:
     try:
         d = json.loads(raw)
     except json.JSONDecodeError:
-        return {"route": "chat", "supplier_key": None, "query": message}
+        return {"rehearse": False, "supplier_key": None}
     if d.get("supplier_key") in ("null", "none", ""):
         d["supplier_key"] = None
-    if d.get("route") not in {"scorecard", "brief", "deck", "rehearse", "chat"}:
-        d["route"] = "chat"
+    d["rehearse"] = bool(d.get("rehearse"))
     return d
 
 
-def _needs_supplier(route: str) -> str:
-    return (
-        f"To {route}, tell me which supplier — PepsiCo, Coca-Cola, or Keurig Dr Pepper."
-    )
+def _needs_supplier() -> str:
+    return "To rehearse, tell me which supplier — PepsiCo, Coca-Cola, or Keurig Dr Pepper."
 
 
 def handle(message: str, history: list[dict] | None = None) -> dict:
-    """Route and execute. Returns a unified envelope the UI can render by `route`."""
+    """Route by persona and execute. Returns a unified envelope the UI renders by
+    `route` ("rehearse" or "analytics")."""
     d = _classify(message)
-    route = d["route"]
-    sk = d.get("supplier_key")
-    query = d.get("query") or message
-    supplier = get_supplier(sk) if sk else None
-    out: dict = {"route": route, "supplier_key": sk}
 
-    if route == "scorecard":
-        g = genie.ask(query)
-        out.update(answer=g.get("text"), sql=g.get("sql"),
-                   columns=g.get("columns", []), rows=g.get("rows", []))
-        return out
-
-    if route == "brief":
+    if d["rehearse"]:
+        supplier = get_supplier(d.get("supplier_key"))
         if not supplier:
-            out.update(answer=_needs_supplier("draft a brief"))
-            return out
-        out.update(supplier=supplier["supplier"],
-                   answer=build_negotiation_brief(supplier, query or DEFAULT_OBJECTIVE))
+            return {"route": "rehearse", "supplier_key": d.get("supplier_key"),
+                    "answer": _needs_supplier()}
+        out = rehearsal_agent.run(supplier, history or [], message)
+        out["supplier_key"] = supplier["key"]
         return out
 
-    if route == "deck":
-        if not supplier:
-            out.update(answer=_needs_supplier("build a deck"))
-            return out
-        out.update(supplier=supplier["supplier"],
-                   deck=build_fact_pack(supplier, query or DEFAULT_OBJECTIVE))
-        return out
-
-    if route == "rehearse":
-        if not supplier:
-            out.update(answer=_needs_supplier("rehearse"))
-            return out
-        out.update(supplier=supplier["supplier"],
-                   answer=rehearse_turn(supplier, history or [], message))
-        return out
-
-    # chat — try Genie (it grounds in real data); if no answer, fall back to LLM
-    try:
-        g = genie.ask(query)
-        if g.get("text") or g.get("rows"):
-            out.update(answer=g.get("text"), sql=g.get("sql"),
-                       columns=g.get("columns", []), rows=g.get("rows", []))
-            return out
-    except Exception:
-        pass
-    ans = get_llm(temperature=0.3).invoke([
-        SystemMessage(content="You are a Kroger beverage-category COGS negotiation assistant. "
-                              "Be concise and practical."),
-        HumanMessage(content=message),
-    ]).content
-    out.update(answer=ans)
+    # Everything analytical (scorecard / brief / deck / chat) -> tool-calling agent.
+    out = analytics_agent.run(message, history)
+    out.setdefault("supplier_key", None)
     return out

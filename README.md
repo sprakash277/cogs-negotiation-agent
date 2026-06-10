@@ -12,11 +12,11 @@ beverage category (PepsiCo, Coca-Cola, Keurig Dr Pepper).
 
 | Feature | What it gives you |
 |---|---|
-| 🧭 **Negotiator (AI)** | Ask anything in plain English — a supervisor routes to the right agent |
+| 🧭 **Negotiator (AI)** | Ask anything in plain English — a tool-calling agent picks & chains tools (Genie · RAG · deck), with a visible **tool trace** |
 | 📊 **Supplier Scorecard** | Live Genie NL→SQL table + "Ask Genie" + an embedded **AI/BI dashboard** |
 | ✍️ **Negotiation Brief** | Board-ready talking points **grounded in the supplier's contract** (RAG) |
-| 📑 **Fact-Pack Deck** | An auto-built, data-driven negotiation deck |
-| ⚔️ **Rehearsal Room** | Role-play practice against the supplier's account manager |
+| 📑 **Fact-Pack Deck** | A **fixed 15-slide / 5-act** negotiation deck, every number grounded in a table/clause — scroll or **▶ Present** (16:9 slides) |
+| ⚔️ **Rehearsal Room** | Role-play practice against the supplier's account manager (isolated persona) |
 
 ## Built on (all real Databricks primitives)
 
@@ -46,6 +46,42 @@ export DATABRICKS_PROFILE=cogs-demo
 uv run uvicorn app:app --reload --port 8000      # backend  → :8000
 cd frontend && npm install && npm run dev          # frontend → :5173 (proxies /api)
 ```
+
+## Deploy to a new workspace
+
+Everything workspace-side (Delta data, Genie space, Vector Search, dashboard)
+is recreated by one command. Knobs default to the cogs-demo values, so set env
+(or copy `.env.example` → `.env`) only for a different target:
+
+```bash
+export DATABRICKS_PROFILE=<your-cli-profile>
+export COGS_CATALOG=<catalog>            # default kroger_demo
+export COGS_SCHEMA=<schema>              # default cogs
+export VS_ENDPOINT=<vector-search-name>  # bootstrap CREATES it if missing
+# WAREHOUSE_ID optional — auto-picks a serverless warehouse if unset
+
+python bootstrap.py            # data_foundation → market_data → genie → knowledge → dashboard
+```
+
+`bootstrap.py` runs the build steps in dependency order and writes the created
+IDs (Genie space, dashboard, warehouse, contract index) to `deploy_state.json`.
+It then prints that state, the exact **app.yaml env block to paste**
+(`GENIE_SPACE_ID`, `CONTRACT_INDEX`, `DASHBOARD_ID`, `COGS_CATALOG`,
+`COGS_SCHEMA`, `WAREHOUSE_ID`), and the follow-up commands.
+
+Then register/serve the agent and deploy the app:
+
+```bash
+python deploy_agent.py          # or: python bootstrap.py --deploy-agent (does both)
+cd frontend && npm install && npm run build && cd ..
+databricks sync . /Users/<you>/cogs-negotiation-agent --exclude node_modules --exclude .venv
+databricks apps deploy cogs-negotiation-agent \
+  --source-code-path /Workspace/Users/<you>/cogs-negotiation-agent
+```
+
+Finally attach app resources (UI or CLI): the **LLM serving endpoint**
+(`CAN_QUERY`) and the **Lakebase database** (`CAN_CONNECT_AND_CREATE`).
+`deploy_state.json` is workspace-specific runtime output and is git-ignored.
 
 ## Switch the LLM provider
 
